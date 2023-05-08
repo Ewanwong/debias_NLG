@@ -6,7 +6,7 @@ from typing import Optional, Tuple, Union
 from transformers import AutoConfig
 # from transformers import AutoModelWithLMHead, PreTrainedModel
 
-from model.prefix_encoder import PrefixEncoder
+from prefix_encoder import PrefixEncoder
 
 class PrefixGPT2(GPT2LMHeadModel):
 
@@ -42,6 +42,7 @@ class PrefixGPT2(GPT2LMHeadModel):
         )
         past_key_values = self.dropout(past_key_values)
         past_key_values = past_key_values.permute([2, 0, 3, 1, 4]).split(2)
+        print(type(past_key_values[0]))
         return past_key_values
     
     def forward(self,
@@ -60,11 +61,19 @@ class PrefixGPT2(GPT2LMHeadModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        if past_key_values is not None:
-            raise ValueError('Should not pass past_key_values to the prefix model')
+        
         batch_size = input_ids.shape[0]
+        """
+        if past_key_values is not None:
+            print("Warning: You are changing the past_key_values of the prefix model!")
+            past_key_values = ()
+            for i in range(self.n_layer):
+                past_key_values[i] = torch.cat((self.get_prefix(batch_size=batch_size)[i], past_key_values[i]), dim=-2)
+        else:
+            past_key_values = self.get_prefix(batch_size=batch_size)
+        """
         past_key_values = self.get_prefix(batch_size=batch_size)
-
+        #prefix_attention_mask = torch.ones(batch_size, past_key_values[0].shape[-2]).to(self.gpt2.device) # self.pre_seq_len
         prefix_attention_mask = torch.ones(batch_size, self.pre_seq_len).to(self.gpt2.device)
         attention_mask = torch.cat((prefix_attention_mask, attention_mask), dim=1)
 
@@ -85,3 +94,4 @@ class PrefixGPT2(GPT2LMHeadModel):
             )
         
         return outputs
+    

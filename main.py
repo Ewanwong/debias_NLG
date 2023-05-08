@@ -1,4 +1,4 @@
-from model.PrefixGPT2 import PrefixGPT2
+from models.PrefixGPT2 import PrefixGPT2
 from transformers import AutoConfig, GPT2Tokenizer
 
 # initialize model config

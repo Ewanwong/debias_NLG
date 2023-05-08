@@ -4,7 +4,7 @@ import regex as re
 from tqdm import tqdm
 from collections import defaultdict
 import random
-from other_utils import load_file_to_list, get_intervals
+from models.other_utils import load_file_to_list, get_intervals
 
 
 def main():
