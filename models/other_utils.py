@@ -1,3 +1,5 @@
+from sklearn.model_selection import train_test_split
+
 def load_file_to_list(input_path):
     with open(input_path, 'r', encoding='utf-8') as f:
         outputs = f.read().strip().split('\n')
@@ -21,3 +23,16 @@ def get_intervals(sent, toks):
             prefix += toks[i]
             prefix_length += len(toks[i])
     return intervals
+
+def train_dev_split(data_path, gender_swapped_data_path, ratio=0.9, shuffle=True):
+    data = load_file_to_list(data_path)
+    gender_swapped_data = load_file_to_list(gender_swapped_data_path)
+    assert len(data) == len(gender_swapped_data)
+    num =  len(data)
+    index_list = list(range(num))
+    train_index, dev_index = train_test_split(index_list, train_size=ratio, shuffle=shuffle)
+
+    train_data, train_gender_swapped_data = [data[i] for i in train_index], [gender_swapped_data[i] for i in train_index]
+    dev_data, dev_gender_swapped_data = [data[i] for i in dev_index], [gender_swapped_data[i] for i in dev_index]
+
+    return train_data, train_gender_swapped_data, dev_data, dev_gender_swapped_data

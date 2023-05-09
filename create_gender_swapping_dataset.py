@@ -18,8 +18,8 @@ def main():
 
     pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
-    input_path = 'sentences_collection/gpt2/gender/' + args.input + '/filtered_lines.txt'
-    output_path = 'sentences_collection/gpt2/gender/' + args.input + '/gender_swapped_filterd_lines.txt'
+    input_path = 'sentences_collection/gpt2/gender/' + args.input + '/data.txt'
+    output_path = 'sentences_collection/gpt2/gender/' + args.input + '/gender_swapped_data.txt'
     
     male_words = load_file_to_list('data/male.txt')
     female_words = load_file_to_list('data/female.txt')
