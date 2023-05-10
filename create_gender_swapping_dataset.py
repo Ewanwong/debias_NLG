@@ -11,15 +11,12 @@ def main():
 
     random.seed(1)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input', type=str, required=True,
-                        help='Data')
-    args = parser.parse_args()
+
 
     pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
-    input_path = 'sentences_collection/gpt2/gender/' + args.input + '/data.txt'
-    output_path = 'sentences_collection/gpt2/gender/' + args.input + '/gender_swapped_data.txt'
+    input_path = 'data/data.txt'
+    output_path = 'data/gender_swapped_data.txt'
     
     male_words = load_file_to_list('data/male.txt')
     female_words = load_file_to_list('data/female.txt')

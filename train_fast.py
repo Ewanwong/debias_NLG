@@ -5,7 +5,7 @@ from transformers import GPT2Tokenizer, AutoConfig, GPT2LMHeadModel
 from transformers import get_scheduler
 from models.PrefixGPT2 import PrefixGPT2
 from models.other_utils import load_file_to_list, train_dev_split
-from models.training_utils import get_lm_loss, get_gender_loss, get_neutral_loss, get_sent_prob_diff_loss, construct_prefix_pairs, JSD, KLD, set_random_seed
+from models.training_utils_fast import get_lm_loss, get_gender_loss, get_neutral_loss, get_sent_prob_diff_loss, construct_prefix_pairs, JSD, KLD, set_random_seed, get_vocab_id, clean_vocab
 import json
 from torch.optim import AdamW
 from tqdm.auto import tqdm
@@ -102,6 +102,11 @@ def main():
         "--random_seed",
         default=42
     )
+
+    parser.add_argument(
+        "--use_full_words",
+        default=True
+    )
     
     args = parser.parse_args()
 
@@ -109,13 +114,13 @@ def main():
     config = AutoConfig.from_pretrained('gpt2')
     config.update(vars(args))
 
-    save_folder = f'alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_prefix_projection_{config.prefix_projection}_hidden_size_{config.prefix_hidden_size}_lr_{config.lr}_batch_size_{config.batch_size}_warmup_{config.warmup_steps}'
+    save_folder = f'fast_model_use_full_words_{config.use_full_words}_alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_prefix_projection_{config.prefix_projection}_hidden_size_{config.prefix_hidden_size}_lr_{config.lr}_batch_size_{config.batch_size}_warmup_{config.warmup_steps}'
     if not os.path.exists(save_folder):
         os.mkdir(save_folder)
     config.save_pretrained(os.path.join(save_folder, 'experiment_config.json'))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    
     set_random_seed(config.random_seed)
 
     data_path = os.path.join(config.data_dir, 'data.txt')
@@ -139,6 +144,13 @@ def main():
     female_words = load_file_to_list('data/female.txt')
     neutral_words = load_file_to_list('data/neutral.txt')
 
+    if config.use_full_words:
+        male_words, female_words, neutral_words = clean_vocab(tokenizer, male_words, female_words, neutral_words)
+
+    male_ids = get_vocab_id(tokenizer, male_words)
+    female_ids = get_vocab_id(tokenizer, female_words)
+    neutral_ids = get_vocab_id(tokenizer, neutral_words)
+        
     # initialize prefix model
     if config.type == "prefix_tuning":
         model = PrefixGPT2(config) 
@@ -197,17 +209,17 @@ def main():
                 
                 
                 if len(prefix_gender) > 0 and config.alpha1!=0:
-                    gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_words, female_words, kld_model, config.batch_size)  # most time-consuming
+                    gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size)  # most time-consuming
                 else:
                     gender_loss = torch.tensor(0.0)
                 
                 if len(neutral_pairs[0]) > 0 and config.alpha2!=0:
-                    neutral_loss = get_neutral_loss(model, tokenizer, neutral_pairs, neutral_words, jsd_model, config.batch_size)
+                    neutral_loss = get_neutral_loss(model, tokenizer, neutral_pairs, neutral_ids, jsd_model, config.batch_size)
                 else:
                     neutral_loss = torch.tensor(0.0)
                 
                 if len(prefix_gender_prior) > 0 and config.alpha3!=0:
-                    gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_words, female_words, kld_model, config.batch_size)
+                    gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size)
                 else:
                     gender_prior_loss = torch.tensor(0.0)
                                
@@ -272,17 +284,17 @@ def main():
                     
                 
                     if len(prefix_gender[0]) > 0:
-                        gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_words, female_words, kld_model, config.batch_size)
+                        gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size)
                     else:
                         gender_loss = torch.tensor(0.0)
 
                     if len(neutral_pairs[0]) > 0:
-                        neutral_loss = get_neutral_loss(model, tokenizer, neutral_pairs, neutral_words, jsd_model, config.batch_size)
+                        neutral_loss = get_neutral_loss(model, tokenizer, neutral_pairs, neutral_ids, jsd_model, config.batch_size)
                     else:
                         neutral_loss = torch.tensor(0.0)
 
                     if len(prefix_gender_prior[0]) > 0:
-                        gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_words, female_words, kld_model, config.batch_size)
+                        gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size)
                     else:
                         gender_prior_loss = torch.tensor(0.0)
                     
