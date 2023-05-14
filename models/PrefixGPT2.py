@@ -27,7 +27,7 @@ class PrefixGPT2(GPT2LMHeadModel):
         for param in self.gpt2.parameters():
             param.requires_grad = False
 
-        self.init_weights()
+        # self.init_weights()
         
 
     def get_prefix(self, batch_size):
@@ -73,7 +73,7 @@ class PrefixGPT2(GPT2LMHeadModel):
         #prefix_attention_mask = torch.ones(batch_size, past_key_values[0].shape[-2]).to(self.gpt2.device) # self.pre_seq_len
         prefix_attention_mask = torch.ones(batch_size, self.pre_seq_len).to(self.gpt2.device)
         if attention_mask is None:
-            attention_mask = prefix_attention_mask
+            attention_mask = torch.cat((prefix_attention_mask, torch.ones(batch_size, input_ids.shape[1]).to(self.gpt2.device)), dim=1)
         elif attention_mask.shape[1] != (self.pre_seq_len + input_ids.shape[1]):
             attention_mask = torch.cat((prefix_attention_mask, attention_mask), dim=1)
 
@@ -96,4 +96,4 @@ class PrefixGPT2(GPT2LMHeadModel):
         return outputs
     
     def save_pretrained(self, save_path):
-        super.save_pretrained(save_path, self.prefix_encoder.state_dict())
+        super().save_pretrained(save_path, self.prefix_encoder.state_dict())

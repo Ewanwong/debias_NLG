@@ -43,12 +43,32 @@ def main():
         "--lr",       
         default=5e-5
     )
-    
+
     parser.add_argument(
-        "--epochs",       
-        default=5
+        "--lm_lr",       
+        default=5e-5
     )
     
+    parser.add_argument(
+        "--lm_epochs",       
+        default=0
+    )
+
+    parser.add_argument(
+        "--lm_warmup_steps",       
+        default=100
+    )
+
+    parser.add_argument(
+        "--epochs",       
+        default=2
+    )
+    
+    parser.add_argument(
+        "--lm_batch_size",       
+        default=128
+    )
+
     parser.add_argument(
         "--batch_size",       
         default=16
@@ -80,22 +100,22 @@ def main():
     # loss args
     parser.add_argument(
         "--alpha1",       
-        default=10
+        default=0.5
     )
     
     parser.add_argument(
         "--alpha2",       
-        default=200
+        default=10
     )
     
     parser.add_argument(
         "--alpha3",       
-        default=200
+        default=0.5
     )
     
     parser.add_argument(
         "--alpha4",       
-        default=200
+        default=100
     )
     
     parser.add_argument(
@@ -114,7 +134,7 @@ def main():
     config = AutoConfig.from_pretrained('gpt2')
     config.update(vars(args))
 
-    save_folder = f'fast_model_use_full_words_{config.use_full_words}_alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_prefix_projection_{config.prefix_projection}_hidden_size_{config.prefix_hidden_size}_lr_{config.lr}_batch_size_{config.batch_size}_warmup_{config.warmup_steps}'
+    save_folder = f'fast_model_use_full_words_{config.use_full_words}_alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_hidden_size_{config.prefix_hidden_size}_batch_size_{config.batch_size}_lm_batch_size_{config.lm_batch_size}_lr_{config.lr}_lm_lr_{config.lm_lr}_epochs_{config.epochs}_lm_epochs_{config.lm_epochs}_warmup_{config.warmup_steps}_lm_warmup_{config.lm_warmup_steps}_random_seed_{config.random_seed}'
     if not os.path.exists(save_folder):
         os.mkdir(save_folder)
     config.save_pretrained(os.path.join(save_folder, 'experiment_config.json'))
@@ -132,8 +152,7 @@ def main():
     train_dataset = DebiasedDataset(train_data, train_gender_swapped_data)
     dev_dataset = DebiasedDataset(dev_data, dev_gender_swapped_data)
 
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=config.batch_size)
-    dev_dataloader = DataLoader(dev_dataset, batch_size=config.batch_size)
+    
 
     # initialize tokenizer
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
@@ -142,7 +161,7 @@ def main():
     # load data
     male_words = load_file_to_list('data/male.txt')
     female_words = load_file_to_list('data/female.txt')
-    neutral_words = load_file_to_list('data/neutral.txt')
+    neutral_words = list(set(load_file_to_list('data/neutral.txt')))
 
     if config.use_full_words:
         male_words, female_words, neutral_words = clean_vocab(tokenizer, male_words, female_words, neutral_words)
@@ -162,20 +181,13 @@ def main():
     kld_model = KLD()
 
     # initialize optimizer and scheduler
-    optimizer = AdamW(model.parameters(), lr=config.lr)
-    num_epochs = config.epochs
-    num_training_steps = num_epochs * len(train_dataloader)
-    lr_scheduler = get_scheduler(
-        name="linear", optimizer=optimizer, num_warmup_steps=config.warmup_steps, num_training_steps=num_training_steps
-    )
-
     model.to(device)
     """
     if device_count > 1:
         model = DataParallel(model, device_ids=devices)
     """
     # start training
-    progress_bar = tqdm(range(num_training_steps))
+    
 
     
     log_file = os.path.join(save_folder, 'log.txt')
@@ -184,7 +196,108 @@ def main():
         print("training starts", file=f)
         print(config)
         print("training starts")
+
+        # lm tuning
+
+        train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=config.lm_batch_size)
+        dev_dataloader = DataLoader(dev_dataset, batch_size=config.lm_batch_size)
+
+        lm_optimizer = AdamW(model.parameters(), lr=config.lm_lr)
         
+        lm_epochs = config.lm_epochs
+
+        lm_num_training_steps = lm_epochs * len(train_dataloader)
+        
+        lm_lr_scheduler = get_scheduler(
+            name="linear", optimizer=lm_optimizer, num_warmup_steps=config.lm_warmup_steps, num_training_steps=lm_num_training_steps
+        )
+        
+        lm_progress_bar = tqdm(range(lm_num_training_steps))
+        
+
+        for epoch in range(lm_epochs):
+            print('==================================================================================', file=f)
+            print(f"LM tuning Epoch {epoch+1} starts", file=f)
+            print('==================================================================================')
+            print(f"LM tuning Epoch {epoch+1} starts")
+            epoch_save_path = os.path.join(save_folder, f'lm_epoch_{epoch+1}')
+
+            # collect train loss
+            train_total_losses = []
+            train_lm_losses = []
+            
+            model.train()
+            for batch in train_dataloader:
+                
+                 # calculate losses
+                lm_loss = get_lm_loss(model, tokenizer, batch)
+
+                loss = lm_loss
+
+
+                train_total_losses.append(loss.item())
+                train_lm_losses.append(lm_loss.item())
+                loss.backward()
+
+                lm_optimizer.step()
+                lm_lr_scheduler.step()
+                lm_optimizer.zero_grad()
+                lm_progress_bar.update(1)
+
+            # save model
+
+            model.save_pretrained(epoch_save_path)
+
+            print(f"train total loss: {sum(train_total_losses)/len(train_total_losses)}", file=f)
+            print(f"train lm loss: {sum(train_lm_losses)/len(train_lm_losses)}", file=f)
+            
+            print(f"train total loss: {sum(train_total_losses)/len(train_total_losses)}")
+            print(f"train lm loss: {sum(train_lm_losses)/len(train_lm_losses)}")
+            
+            
+            # evaluation
+            model.eval()
+            with torch.no_grad():
+        
+                # collect dev loss
+                dev_total_losses = []
+                dev_lm_losses = []
+                
+                for batch in dev_dataloader:
+                    
+                    # calculate losses
+                    lm_loss = get_lm_loss(model, tokenizer, batch)
+                    
+                
+                    
+                    loss = lm_loss
+                    dev_total_losses.append(loss.item())
+                    dev_lm_losses.append(lm_loss.item())
+                    
+
+            print(f"dev total loss: {sum(dev_total_losses)/len(dev_total_losses)}", file=f)
+            print(f"dev lm loss: {sum(dev_lm_losses)/len(dev_lm_losses)}", file=f)
+            
+
+            print(f"dev total loss: {sum(dev_total_losses)/len(dev_total_losses)}")
+            print(f"dev lm loss: {sum(dev_lm_losses)/len(dev_lm_losses)}")
+        
+        train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=config.batch_size)
+        dev_dataloader = DataLoader(dev_dataset, batch_size=config.batch_size)
+
+        optimizer = AdamW(model.parameters(), lr=config.lr)
+
+        num_epochs = config.epochs
+        
+        num_training_steps = num_epochs * len(train_dataloader)
+
+        lr_scheduler = get_scheduler(
+            name="linear", optimizer=optimizer, num_warmup_steps=config.warmup_steps, num_training_steps=num_training_steps
+        )
+
+        progress_bar = tqdm(range(num_training_steps))
+
+
         for epoch in range(num_epochs):
             print('==================================================================================', file=f)
             print(f"Epoch {epoch+1} starts", file=f)
@@ -228,6 +341,7 @@ def main():
                 else:
                     sent_prob_diff_loss = torch.tensor(0.0)
                 
+                
                 print(lm_loss.item(), config.alpha1 * gender_loss.item(), config.alpha2 * neutral_loss.item(), config.alpha3 * gender_prior_loss.item(), config.alpha4 * sent_prob_diff_loss.item()) 
 
                 loss = lm_loss + config.alpha1 * gender_loss + config.alpha2 * neutral_loss + config.alpha3 * gender_prior_loss + config.alpha4 * sent_prob_diff_loss
@@ -268,7 +382,7 @@ def main():
             # evaluation
             model.eval()
             with torch.no_grad():
-            
+        
                 # collect dev loss
                 dev_total_losses = []
                 dev_lm_losses = []
@@ -283,7 +397,7 @@ def main():
                     lm_loss = get_lm_loss(model, tokenizer, batch)
                     
                 
-                    if len(prefix_gender[0]) > 0:
+                    if len(prefix_gender) > 0:
                         gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size)
                     else:
                         gender_loss = torch.tensor(0.0)
@@ -293,7 +407,7 @@ def main():
                     else:
                         neutral_loss = torch.tensor(0.0)
 
-                    if len(prefix_gender_prior[0]) > 0:
+                    if len(prefix_gender_prior) > 0:
                         gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size)
                     else:
                         gender_prior_loss = torch.tensor(0.0)

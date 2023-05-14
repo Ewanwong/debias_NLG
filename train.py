@@ -109,7 +109,7 @@ def main():
     config = AutoConfig.from_pretrained('gpt2')
     config.update(vars(args))
 
-    save_folder = f'alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_prefix_projection_{config.prefix_projection}_hidden_size_{config.prefix_hidden_size}_lr_{config.lr}_batch_size_{config.batch_size}_warmup_{config.warmup_steps}'
+    save_folder = f'alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_prefix_projection_{config.prefix_projection}_hidden_size_{config.prefix_hidden_size}_lr_{config.lr}_batch_size_{config.batch_size}_warmup_{config.warmup_steps}_random_seed_{config.random_seed}'
     if not os.path.exists(save_folder):
         os.mkdir(save_folder)
     config.save_pretrained(os.path.join(save_folder, 'experiment_config.json'))
@@ -137,7 +137,7 @@ def main():
     # load data
     male_words = load_file_to_list('data/male.txt')
     female_words = load_file_to_list('data/female.txt')
-    neutral_words = load_file_to_list('data/neutral.txt')
+    neutral_words = list(set(load_file_to_list('data/neutral.txt')))
 
     # initialize prefix model
     if config.type == "prefix_tuning":
@@ -271,7 +271,7 @@ def main():
                     lm_loss = get_lm_loss(model, tokenizer, batch)
                     
                 
-                    if len(prefix_gender[0]) > 0:
+                    if len(prefix_gender) > 0:
                         gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_words, female_words, kld_model, config.batch_size)
                     else:
                         gender_loss = torch.tensor(0.0)
@@ -281,7 +281,7 @@ def main():
                     else:
                         neutral_loss = torch.tensor(0.0)
 
-                    if len(prefix_gender_prior[0]) > 0:
+                    if len(prefix_gender_prior) > 0:
                         gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_words, female_words, kld_model, config.batch_size)
                     else:
                         gender_prior_loss = torch.tensor(0.0)
