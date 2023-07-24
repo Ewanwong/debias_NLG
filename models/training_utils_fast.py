@@ -22,6 +22,8 @@ def set_random_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def get_lm_loss(model, tokenizer, sentences_pairs):
 
@@ -111,18 +113,18 @@ def construct_prefix_pairs(sentences_pairs, female_words, male_words, neutral_wo
                     
     return prefix_gender, tuple(neutral_pairs), prefix_gender_prior
 
-def get_gender_loss(model, tokenizer, prefix_gender, male_word_ids, female_word_ids, kld_model, batch_size):
+def get_gender_loss(model, tokenizer, prefix_gender, male_word_ids, female_word_ids, kld_model, batch_size, beta=10):
     
 
     sents1_vocab_dist = get_conditional_prob_dist(model, tokenizer, prefix_gender, male_word_ids, batch_size).view(-1)
     sents2_vocab_dist = get_conditional_prob_dist(model, tokenizer, prefix_gender, female_word_ids, batch_size).view(-1)
 
     full_dist = torch.stack([sents1_vocab_dist, sents2_vocab_dist]).permute([1, 0])
-
-    full_dist = F.softmax(full_dist, dim=1)
-
+    
+    full_dist = F.softmax(full_dist/beta, dim=1)
+   
     loss = kld_model(full_dist)
-
+    
     return loss
 
 
@@ -135,7 +137,7 @@ def get_neutral_loss(model, tokenizer, train_pairs_neutral, neutral_word_ids, js
     #  sents2_vocab_dist = full_dist / torch.sum(full_dist,dim=1).unsqueeze(1).expand(-1, full_dist.shape[1])
     sents1_dist = F.softmax(sents1_dist, dim=1)
     sents2_dist = F.softmax(sents2_dist, dim=1)
-
+    
     loss = jsd_model(sents1_dist, sents2_dist)
 
     return loss
@@ -184,7 +186,6 @@ def get_sent_prob_diff_loss(model, tokenizer, sentences_pairs, kld_model):
     prob_dist = torch.stack([torch.stack(male_losses), torch.stack(female_losses)]).permute([1, 0])
 
     prob_dist = F.softmax(prob_dist, dim=1)
- 
 
     loss = kld_model(prob_dist)
     return loss

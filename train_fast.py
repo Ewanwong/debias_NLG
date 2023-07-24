@@ -56,17 +56,17 @@ def main():
 
     parser.add_argument(
         "--lm_warmup_steps",       
-        default=100
+        default=500
     )
 
     parser.add_argument(
         "--epochs",       
-        default=2
+        default=5
     )
     
     parser.add_argument(
         "--lm_batch_size",       
-        default=128
+        default=16
     )
 
     parser.add_argument(
@@ -100,22 +100,27 @@ def main():
     # loss args
     parser.add_argument(
         "--alpha1",       
-        default=0.5
+        default=50
     )
     
     parser.add_argument(
         "--alpha2",       
-        default=10
+        default=100
     )
     
     parser.add_argument(
         "--alpha3",       
-        default=0.5
+        default=0
     )
     
     parser.add_argument(
         "--alpha4",       
         default=100
+    )
+
+    parser.add_argument(
+        "--beta",       
+        default=5
     )
     
     parser.add_argument(
@@ -134,7 +139,7 @@ def main():
     config = AutoConfig.from_pretrained('gpt2')
     config.update(vars(args))
 
-    save_folder = f'fast_model_use_full_words_{config.use_full_words}_alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_pre_seq_len_{config.pre_seq_len}_hidden_size_{config.prefix_hidden_size}_batch_size_{config.batch_size}_lm_batch_size_{config.lm_batch_size}_lr_{config.lr}_lm_lr_{config.lm_lr}_epochs_{config.epochs}_lm_epochs_{config.lm_epochs}_warmup_{config.warmup_steps}_lm_warmup_{config.lm_warmup_steps}_random_seed_{config.random_seed}'
+    save_folder = f'fast_model_use_full_words_{config.use_full_words}_alpha1_{config.alpha1}_alpha2_{config.alpha2}_alpha3_{config.alpha3}_alpha4_{config.alpha4}_beta_{config.beta}_pre_seq_len_{config.pre_seq_len}_hidden_size_{config.prefix_hidden_size}_batch_size_{config.batch_size}_lm_batch_size_{config.lm_batch_size}_lr_{config.lr}_lm_lr_{config.lm_lr}_epochs_{config.epochs}_lm_epochs_{config.lm_epochs}_warmup_{config.warmup_steps}_lm_warmup_{config.lm_warmup_steps}_random_seed_{config.random_seed}'
     if not os.path.exists(save_folder):
         os.mkdir(save_folder)
     config.save_pretrained(os.path.join(save_folder, 'experiment_config.json'))
@@ -151,8 +156,6 @@ def main():
     # construct dataset/dataloader
     train_dataset = DebiasedDataset(train_data, train_gender_swapped_data)
     dev_dataset = DebiasedDataset(dev_data, dev_gender_swapped_data)
-
-    
 
     # initialize tokenizer
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
@@ -179,7 +182,7 @@ def main():
     # initialize JSD/KLD model
     jsd_model = JSD()
     kld_model = KLD()
-
+    
     # initialize optimizer and scheduler
     model.to(device)
     """
@@ -312,6 +315,7 @@ def main():
             train_neutral_losses = []
             train_gender_prior_losses = []
             train_sent_prob_diff_losses = []
+            train_bias_losses = []
 
             model.train()
             for batch in train_dataloader:
@@ -322,7 +326,7 @@ def main():
                 
                 
                 if len(prefix_gender) > 0 and config.alpha1!=0:
-                    gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size)  # most time-consuming
+                    gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size, beta=config.beta)  # most time-consuming
                 else:
                     gender_loss = torch.tensor(0.0)
                 
@@ -332,7 +336,7 @@ def main():
                     neutral_loss = torch.tensor(0.0)
                 
                 if len(prefix_gender_prior) > 0 and config.alpha3!=0:
-                    gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size)
+                    gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size, beta=config.beta)
                 else:
                     gender_prior_loss = torch.tensor(0.0)
                                
@@ -342,10 +346,11 @@ def main():
                     sent_prob_diff_loss = torch.tensor(0.0)
                 
                 
-                print(lm_loss.item(), config.alpha1 * gender_loss.item(), config.alpha2 * neutral_loss.item(), config.alpha3 * gender_prior_loss.item(), config.alpha4 * sent_prob_diff_loss.item()) 
-
+                # print(lm_loss.item(), config.alpha1 * gender_loss.item(), config.alpha2 * neutral_loss.item(), config.alpha3 * gender_prior_loss.item(), config.alpha4 * sent_prob_diff_loss.item()) 
+                
                 loss = lm_loss + config.alpha1 * gender_loss + config.alpha2 * neutral_loss + config.alpha3 * gender_prior_loss + config.alpha4 * sent_prob_diff_loss
-
+                if torch.isnan(loss):
+                    return
 
                 train_total_losses.append(loss.item())
                 train_lm_losses.append(lm_loss.item())
@@ -353,6 +358,7 @@ def main():
                 train_neutral_losses.append(neutral_loss.item())
                 train_gender_prior_losses.append(gender_prior_loss.item())
                 train_sent_prob_diff_losses.append(sent_prob_diff_loss.item())
+                train_bias_losses.append((gender_loss+neutral_loss+gender_prior_loss+sent_prob_diff_loss).item())
                 loss.backward()
 
                 optimizer.step()
@@ -370,6 +376,8 @@ def main():
             print(f"train neutral loss: {sum(train_neutral_losses)/len(train_neutral_losses)}", file=f)
             print(f"train gender prior loss: {sum(train_gender_prior_losses)/len(train_gender_prior_losses)}", file=f)
             print(f"train sent prob diff loss: {sum(train_sent_prob_diff_losses)/len(train_sent_prob_diff_losses)}", file=f)
+            print(f"train other loss: {sum(train_total_losses)/len(train_total_losses)-sum(train_lm_losses)/len(train_lm_losses)}", file=f)
+            print(f"train bias loss: {sum(train_bias_losses)/len(train_bias_losses)}", file=f)
 
             print(f"train total loss: {sum(train_total_losses)/len(train_total_losses)}")
             print(f"train lm loss: {sum(train_lm_losses)/len(train_lm_losses)}")
@@ -377,6 +385,8 @@ def main():
             print(f"train neutral loss: {sum(train_neutral_losses)/len(train_neutral_losses)}")
             print(f"train gender prior loss: {sum(train_gender_prior_losses)/len(train_gender_prior_losses)}")
             print(f"train sent prob diff loss: {sum(train_sent_prob_diff_losses)/len(train_sent_prob_diff_losses)}")
+            print(f"train other loss: {sum(train_total_losses)/len(train_total_losses)-sum(train_lm_losses)/len(train_lm_losses)}")
+            print(f"train bias loss: {sum(train_bias_losses)/len(train_bias_losses)}")
 
             
             # evaluation
@@ -390,6 +400,7 @@ def main():
                 dev_neutral_losses = []
                 dev_gender_prior_losses = []
                 dev_sent_prob_diff_losses = []
+                dev_bias_losses = []
 
                 for batch in dev_dataloader:
                     prefix_gender, neutral_pairs, prefix_gender_prior = construct_prefix_pairs(batch, female_words, male_words, neutral_words)
@@ -397,22 +408,25 @@ def main():
                     lm_loss = get_lm_loss(model, tokenizer, batch)
                     
                 
-                    if len(prefix_gender) > 0:
-                        gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size)
+                    if len(prefix_gender) > 0 and config.alpha1!=0:
+                        gender_loss = get_gender_loss(model, tokenizer, prefix_gender, male_ids, female_ids, kld_model, config.batch_size, beta=config.beta)  # most time-consuming
                     else:
                         gender_loss = torch.tensor(0.0)
-
-                    if len(neutral_pairs[0]) > 0:
+                    
+                    if len(neutral_pairs[0]) > 0 and config.alpha2!=0:
                         neutral_loss = get_neutral_loss(model, tokenizer, neutral_pairs, neutral_ids, jsd_model, config.batch_size)
                     else:
                         neutral_loss = torch.tensor(0.0)
-
-                    if len(prefix_gender_prior) > 0:
-                        gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size)
+                    
+                    if len(prefix_gender_prior) > 0 and config.alpha3!=0:
+                        gender_prior_loss = get_gender_loss(model, tokenizer, prefix_gender_prior, male_ids, female_ids, kld_model, config.batch_size, beta=config.beta)
                     else:
                         gender_prior_loss = torch.tensor(0.0)
-                    
-                    sent_prob_diff_loss = get_sent_prob_diff_loss(model, tokenizer, batch, kld_model)
+                                
+                    if config.alpha4 != 0:
+                        sent_prob_diff_loss = get_sent_prob_diff_loss(model, tokenizer, batch, kld_model)
+                    else:
+                        sent_prob_diff_loss = torch.tensor(0.0)
                     loss = lm_loss + config.alpha1 * gender_loss + config.alpha2 * neutral_loss + config.alpha3 * gender_prior_loss
 
                     dev_total_losses.append(loss.item())
@@ -421,13 +435,15 @@ def main():
                     dev_neutral_losses.append(neutral_loss.item())
                     dev_gender_prior_losses.append(gender_prior_loss.item())
                     dev_sent_prob_diff_losses.append(sent_prob_diff_loss.item())
-
+                    dev_bias_losses.append((gender_loss+neutral_loss+gender_prior_loss+sent_prob_diff_loss).item())
             print(f"dev total loss: {sum(dev_total_losses)/len(dev_total_losses)}", file=f)
             print(f"dev lm loss: {sum(dev_lm_losses)/len(dev_lm_losses)}", file=f)
             print(f"dev gender loss: {sum(dev_gender_losses)/len(dev_gender_losses)}", file=f)
             print(f"dev neutral loss: {sum(dev_neutral_losses)/len(dev_neutral_losses)}", file=f)
             print(f"dev gender prior loss: {sum(dev_gender_prior_losses)/len(dev_gender_prior_losses)}", file=f)
             print(f"dev sent prob diff loss: {sum(dev_sent_prob_diff_losses)/len(dev_sent_prob_diff_losses)}", file=f)
+            print(f"dev other loss: {sum(dev_total_losses)/len(dev_total_losses)-sum(dev_lm_losses)/len(dev_lm_losses)}", file=f)
+            print(f"dev bias loss: {sum(dev_bias_losses)/len(dev_bias_losses)}", file=f)
 
             print(f"dev total loss: {sum(dev_total_losses)/len(dev_total_losses)}")
             print(f"dev lm loss: {sum(dev_lm_losses)/len(dev_lm_losses)}")
@@ -435,7 +451,8 @@ def main():
             print(f"dev neutral loss: {sum(dev_neutral_losses)/len(dev_neutral_losses)}")
             print(f"dev gender prior loss: {sum(dev_gender_prior_losses)/len(dev_gender_prior_losses)}")
             print(f"dev sent prob diff loss: {sum(dev_sent_prob_diff_losses)/len(dev_sent_prob_diff_losses)}")
-
+            print(f"dev other loss: {sum(dev_total_losses)/len(dev_total_losses)-sum(dev_lm_losses)/len(dev_lm_losses)}")
+            print(f"dev bias loss: {sum(dev_bias_losses)/len(dev_bias_losses)}")
         print("training stops", file=f)
         print("training_stops")
 
