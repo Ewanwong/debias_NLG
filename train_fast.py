@@ -135,6 +135,12 @@ def main():
     
     args = parser.parse_args()
 
+    # take arguments from bash
+    args.alpha1 = int(args.alpha1)
+    args.alpha2 = int(args.alpha2)
+    args.alpha3 = int(args.alpha3)
+    args.alpha4 = int(args.alpha4)
+    
     # load & update config
     config = AutoConfig.from_pretrained('gpt2')
     config.update(vars(args))

@@ -220,11 +220,3 @@ manservants
 stailor
 busboy
 heros
-john
-paul
-mike
-kevin
-steve
-greg
-jeff
-bill
