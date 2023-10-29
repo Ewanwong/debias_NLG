@@ -36,6 +36,7 @@ def get_intervals(sent, toks):
             prefix += toks[i]
             prefix_length += len(toks[i])
         """
+    intervals.append(0)
     return intervals
 
 def train_dev_split(data_path, gender_swapped_data_path, ratio=0.9, shuffle=True):

@@ -4,6 +4,8 @@ from torch.nn import CrossEntropyLoss
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from typing import Optional, Tuple, Union
 from transformers import AutoConfig
+import os
+import json
 # from transformers import AutoModelWithLMHead, PreTrainedModel
 
 from models.prefix_encoder import PrefixEncoder
@@ -12,7 +14,7 @@ class PrefixGPT2(GPT2LMHeadModel):
 
     def __init__(self, config):
         super().__init__(config)
-
+        self.config = config
         self.gpt2 = GPT2LMHeadModel.from_pretrained('gpt2')
 
         self.pre_seq_len = config.pre_seq_len
@@ -99,4 +101,10 @@ class PrefixGPT2(GPT2LMHeadModel):
         return outputs
     
     def save_pretrained(self, save_path):
-        super().save_pretrained(save_path, self.prefix_encoder.state_dict())
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        self.prefix_encoder.save(save_path)
+        self.config.save_pretrained(save_path)
+    
+    def load(self, save_path):
+        self.prefix_encoder.load(save_path)

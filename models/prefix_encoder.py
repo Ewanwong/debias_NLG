@@ -1,5 +1,5 @@
 import torch
-
+import os
 
 class PrefixEncoder(torch.nn.Module):
     r'''
@@ -31,4 +31,23 @@ class PrefixEncoder(torch.nn.Module):
             past_key_values = self.embedding(prefix)
         return past_key_values
     
+    def save(self, save_path):
+        save_bin_path = os.path.join(save_path, 'pytorch_model.bin')
+        if self.prefix_projection:
+            torch.save({"embedding_matrix":self.embedding.state_dict(), "trans_matrix":self.trans.state_dict()}, save_bin_path)
+        else:
+            torch.save({"embedding_matrix":self.embedding.state_dict()}, save_bin_path)
+        
+        
+    
+    def load(self, save_path):
+        save_bin_path = os.path.join(save_path, 'pytorch_model.bin')
+        if self.prefix_projection:
+            checkpoint = torch.load(save_bin_path)
+            self.embedding.load_state_dict(checkpoint["embedding_matrix"])
+            self.trans.load_state_dict(checkpoint['trans_matrix'])
+            
+        else:
+            checkpoint = torch.load(save_bin_path)
+            self.embedding.load_state_dict(checkpoint["embedding_matrix"])
     
