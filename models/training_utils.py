@@ -27,6 +27,7 @@ def set_random_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 def get_lm_loss(model, tokenizer, sentences_pairs):
+    # NLL on CDA data
 
     # LM loss
 
@@ -115,7 +116,7 @@ def construct_prefix_pairs(sentences_pairs, female_words, male_words, neutral_wo
     return prefix_gender, tuple(neutral_pairs), prefix_gender_prior
 
 def get_gender_loss(model, tokenizer, prefix_gender, male_word_ids, female_word_ids, kld_model, batch_size, beta=10):
-    
+    #  kld for equalizing loss
 
     sents1_vocab_dist = get_conditional_prob_dist(model, tokenizer, prefix_gender, male_word_ids, batch_size).view(-1)
     sents2_vocab_dist = get_conditional_prob_dist(model, tokenizer, prefix_gender, female_word_ids, batch_size).view(-1)
@@ -131,6 +132,7 @@ def get_gender_loss(model, tokenizer, prefix_gender, male_word_ids, female_word_
 
 
 def get_neutral_loss(model, tokenizer, train_pairs_neutral, neutral_word_ids, jsd_model, batch_size):
+    # jsd for neutralization loss
     sents1_prefix, sents2_prefix = train_pairs_neutral
     sents1_dist = get_conditional_prob_dist(model, tokenizer, sents1_prefix, neutral_word_ids, batch_size)
     #sents1_vocab_dist = full_dist / torch.sum(full_dist,dim=1).unsqueeze(1).expand(-1, full_dist.shape[1])
@@ -146,6 +148,7 @@ def get_neutral_loss(model, tokenizer, train_pairs_neutral, neutral_word_ids, js
 
 
 def get_sent_prob_diff_loss(model, tokenizer, sentences_pairs, kld_model):
+    # seq level equalizing loss
     male_sents, female_sents = sentences_pairs
     male_inputs = tokenizer([tokenizer.bos_token+male_sent+tokenizer.eos_token for male_sent in male_sents], padding=True, truncation=True, return_tensors='pt')
     male_inputs =  {k:v.to(model.device) for k,v in male_inputs.items()}
