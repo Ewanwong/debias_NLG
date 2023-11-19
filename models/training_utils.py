@@ -241,7 +241,7 @@ def get_vocab_id(tokenizer, word_list):
 
 
 def get_conditional_prob_dist(model, tokenizer, prompts, id_list, batch_size):
-    
+    # next token probability
     full_dist = []
     for i in range(int(len(prompts)/batch_size)+1):
         if i * batch_size >= len(prompts):
